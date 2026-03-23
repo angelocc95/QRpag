@@ -109,6 +109,13 @@ export default function AdminDashboard() {
           >
             Carga Masiva CSV
           </button>
+          <a
+            href="/plantilla-certificados.csv"
+            download
+            className="px-6 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 font-semibold"
+          >
+            Descargar Plantilla
+          </a>
         </div>
 
         {/* Formulario */}
@@ -123,7 +130,6 @@ export default function AdminDashboard() {
           <BulkUploadForm
             onClose={() => setShowBulkForm(false)}
             onSuccess={(message) => {
-              setShowBulkForm(false);
               loadCertificates();
               setNotice(message);
             }}
@@ -198,6 +204,17 @@ type BulkCertificado = {
   curso: string;
   fecha: string;
   pdf?: string;
+};
+
+type BulkFailure = {
+  codigo: string;
+  error: string;
+};
+
+type ReportRow = {
+  codigo: string;
+  estado: 'OK' | 'ERROR';
+  detalle: string;
 };
 
 function normalizeHeader(value: string): string {
@@ -339,6 +356,7 @@ function BulkUploadForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
+  const [reportUrl, setReportUrl] = useState('');
 
   function chunkRows<T>(input: T[], size: number): T[][] {
     const chunks: T[][] = [];
@@ -350,6 +368,26 @@ function BulkUploadForm({
 
   function normalizeCode(value: string): string {
     return value.trim().toLowerCase();
+  }
+
+  function escapeCsvValue(value: string): string {
+    const escaped = value.replace(/"/g, '""');
+    return `"${escaped}"`;
+  }
+
+  function createReportFile(reportRows: ReportRow[]) {
+    if (reportUrl) {
+      URL.revokeObjectURL(reportUrl);
+    }
+
+    const lines = [
+      'codigo,estado,detalle',
+      ...reportRows.map((row) => [row.codigo, row.estado, row.detalle].map(escapeCsvValue).join(','))
+    ];
+    const csvContent = `sep=,\n${lines.join('\n')}`;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const objectUrl = URL.createObjectURL(blob);
+    setReportUrl(objectUrl);
   }
 
   function fileNameWithoutExtension(fileName: string): string {
@@ -419,6 +457,9 @@ function BulkUploadForm({
       setLoading(true);
       setError('');
       setResult('');
+      setReportUrl('');
+
+      const reportRows: ReportRow[] = [];
 
       let processedRows = [...rows];
       let linkedPdfs = 0;
@@ -438,9 +479,18 @@ function BulkUploadForm({
             continue;
           }
 
-          const uploadedUrl = await uploadSinglePdf(matchedFile);
-          linkedPdfs += 1;
-          rowsWithUploadedPdf.push({ ...row, pdf: uploadedUrl });
+          try {
+            const uploadedUrl = await uploadSinglePdf(matchedFile);
+            linkedPdfs += 1;
+            rowsWithUploadedPdf.push({ ...row, pdf: uploadedUrl });
+          } catch (uploadErr) {
+            reportRows.push({
+              codigo: row.codigo,
+              estado: 'ERROR',
+              detalle: uploadErr instanceof Error ? uploadErr.message : 'Error al subir PDF'
+            });
+            rowsWithUploadedPdf.push(row);
+          }
         }
 
         processedRows = rowsWithUploadedPdf;
@@ -450,26 +500,54 @@ function BulkUploadForm({
       let totalProcessed = 0;
 
       for (let i = 0; i < chunks.length; i++) {
+        const chunkRowsData = chunks[i];
         const res = await fetch('/api/admin/certificados/bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rows: chunks[i] })
+          body: JSON.stringify({ rows: chunkRowsData })
         });
 
         const payload = await res.json();
 
         if (!res.ok) {
-          throw new Error(payload.error || `Error en carga masiva (lote ${i + 1})`);
+          for (const item of chunkRowsData) {
+            reportRows.push({
+              codigo: item.codigo,
+              estado: 'ERROR',
+              detalle: payload.error || `Error en carga masiva (lote ${i + 1})`
+            });
+          }
+          continue;
         }
 
         totalProcessed += Number(payload.count || 0);
+
+        const failedList: BulkFailure[] = Array.isArray(payload.failed) ? payload.failed : [];
+        const failedByCode = new Map<string, string>();
+        for (const failedItem of failedList) {
+          failedByCode.set(normalizeCode(failedItem.codigo), failedItem.error);
+        }
+
+        for (const item of chunkRowsData) {
+          const failure = failedByCode.get(normalizeCode(item.codigo));
+          if (failure) {
+            reportRows.push({ codigo: item.codigo, estado: 'ERROR', detalle: failure });
+          } else {
+            reportRows.push({ codigo: item.codigo, estado: 'OK', detalle: 'Procesado correctamente' });
+          }
+        }
       }
 
+      createReportFile(reportRows);
+
+      const okCount = reportRows.filter((row) => row.estado === 'OK').length;
+      const errorCount = reportRows.filter((row) => row.estado === 'ERROR').length;
+
       setResult(
-        `Carga masiva completada: ${totalProcessed} certificados procesados. PDFs asociados: ${linkedPdfs}.`
+        `Carga masiva completada. Procesados: ${totalProcessed}. OK: ${okCount}. Errores: ${errorCount}. PDFs asociados: ${linkedPdfs}.`
       );
       onSuccess(
-        `Carga masiva completada: ${totalProcessed} certificados procesados. PDFs asociados: ${linkedPdfs}.`
+        `Carga masiva completada. Procesados: ${totalProcessed}. OK: ${okCount}. Errores: ${errorCount}. PDFs asociados: ${linkedPdfs}.`
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error en carga masiva');
@@ -531,6 +609,16 @@ function BulkUploadForm({
           <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
             {result}
           </div>
+        )}
+
+        {reportUrl && (
+          <a
+            href={reportUrl}
+            download="reporte-carga-masiva.csv"
+            className="mt-3 inline-flex rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            Descargar Reporte CSV
+          </a>
         )}
 
         <div className="flex gap-3 pt-5">

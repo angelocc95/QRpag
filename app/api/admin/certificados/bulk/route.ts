@@ -9,6 +9,11 @@ type BulkCertificado = {
   pdf?: string;
 };
 
+type BulkFailure = {
+  codigo: string;
+  error: string;
+};
+
 function chunkArray<T>(input: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < input.length; i += size) {
@@ -47,6 +52,7 @@ export async function POST(request: Request) {
 
     const chunks = chunkArray(rows, 100);
     let totalProcessed = 0;
+    const failed: BulkFailure[] = [];
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
@@ -56,13 +62,28 @@ export async function POST(request: Request) {
         .select('codigo');
 
       if (error) {
-        throw new Error(`Error en lote ${i + 1}: ${error.message}`);
+        // If a chunk fails, retry row-by-row to isolate bad records and continue.
+        for (const row of chunk) {
+          const { error: rowError, data: rowData } = await supabaseServer
+            .from('certificados')
+            .upsert([row], { onConflict: 'codigo' })
+            .select('codigo');
+
+          if (rowError) {
+            failed.push({ codigo: row.codigo, error: rowError.message });
+            continue;
+          }
+
+          totalProcessed += rowData?.length ?? 1;
+        }
+
+        continue;
       }
 
       totalProcessed += data?.length ?? chunk.length;
     }
 
-    return NextResponse.json({ success: true, count: totalProcessed });
+    return NextResponse.json({ success: true, count: totalProcessed, failed });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Error en carga masiva' },
