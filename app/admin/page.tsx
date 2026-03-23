@@ -213,10 +213,15 @@ function parseCsvLine(line: string, separator: string): string[] {
 }
 
 function parseBulkCsv(content: string): { rows: BulkCertificado[]; error?: string } {
-  const lines = content
+  let lines = content
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+
+  // Excel can export CSV with a delimiter hint in the first line, e.g. "sep=,".
+  if (lines[0]?.toLowerCase().startsWith('sep=')) {
+    lines = lines.slice(1);
+  }
 
   if (lines.length < 2) {
     return { rows: [], error: 'El CSV debe incluir encabezado y al menos una fila.' };
@@ -358,18 +363,19 @@ function BulkUploadForm({
           fileByCode.set(normalizeCode(fileNameWithoutExtension(file.name)), file);
         }
 
-        const rowsWithUploadedPdf = await Promise.all(
-          rows.map(async (row) => {
-            const matchedFile = fileByCode.get(normalizeCode(row.codigo));
-            if (!matchedFile) {
-              return row;
-            }
+        const rowsWithUploadedPdf: BulkCertificado[] = [];
 
-            const uploadedUrl = await uploadSinglePdf(matchedFile);
-            linkedPdfs += 1;
-            return { ...row, pdf: uploadedUrl };
-          })
-        );
+        for (const row of rows) {
+          const matchedFile = fileByCode.get(normalizeCode(row.codigo));
+          if (!matchedFile) {
+            rowsWithUploadedPdf.push(row);
+            continue;
+          }
+
+          const uploadedUrl = await uploadSinglePdf(matchedFile);
+          linkedPdfs += 1;
+          rowsWithUploadedPdf.push({ ...row, pdf: uploadedUrl });
+        }
 
         processedRows = rowsWithUploadedPdf;
       }
