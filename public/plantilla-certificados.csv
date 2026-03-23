@@ -1,3 +1,4 @@
+sep=,
 codigo,nombre,curso,fecha,pdf
 CERT-001,Juan Perez,Excel Avanzado,2026-03-20,
 CERT-002,Maria Gomez,Power BI Profesional,2026-03-21,
