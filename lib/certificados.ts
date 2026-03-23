@@ -19,17 +19,19 @@ export async function getCertificadoByCode(code: string): Promise<Certificado | 
     const { data, error } = await supabase
       .from("certificados")
       .select("*")
-      .ilike("codigo", `%${codigo}%`)
-      .single();
+      .ilike("codigo", codigo);
 
-    if (error || !data) return null;
+    if (error || !data || data.length === 0) return null;
+
+    const exactMatch = data.find((item: any) => normalizeCode(String(item.codigo ?? "")) === codigo);
+    const selected = exactMatch ?? data[0];
     
     return {
-      codigo: data.codigo,
-      nombre: data.nombre,
-      curso: data.curso,
-      fecha: data.fecha,
-      pdf: data.pdf
+      codigo: selected.codigo,
+      nombre: selected.nombre,
+      curso: selected.curso,
+      fecha: selected.fecha,
+      pdf: selected.pdf
     };
   } catch {
     return null;
