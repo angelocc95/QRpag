@@ -157,8 +157,47 @@ function FormCertificado({
     fecha: editingCert?.fecha || '',
     pdf: editingCert?.pdf || ''
   });
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+
+  async function uploadPdfToSupabase(file: File): Promise<string | null> {
+    try {
+      setUploadingPdf(true);
+      const fileName = `${Date.now()}-${file.name}`;
+      
+      const { data, error: uploadError } = await supabase.storage
+        .from('pdfs')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('pdfs')
+        .getPublicUrl(data.path);
+
+      return urlData.publicUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al subir PDF');
+      return null;
+    } finally {
+      setUploadingPdf(false);
+    }
+  }
+
+  async function handlePdfFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      setError('Solo se permiten archivos PDF');
+      return;
+    }
+
+    setPdfFile(file);
+    setError('');
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -166,11 +205,28 @@ function FormCertificado({
     setError('');
 
     try {
+      let pdfUrl = formData.pdf;
+
+      // Si hay un archivo PDF nuevo, subirlo
+      if (pdfFile) {
+        const uploadedUrl = await uploadPdfToSupabase(pdfFile);
+        if (!uploadedUrl) {
+          setLoading(false);
+          return;
+        }
+        pdfUrl = uploadedUrl;
+      }
+
+      const dataToSave = {
+        ...formData,
+        pdf: pdfUrl
+      };
+
       if (editingCert?.id) {
         // Actualizar certificado existente
         const { error: updateError } = await supabase
           .from('certificados')
-          .update(formData)
+          .update(dataToSave)
           .eq('id', editingCert.id);
 
         if (updateError) throw updateError;
@@ -178,7 +234,7 @@ function FormCertificado({
         // Crear nuevo certificado
         const { error: insertError } = await supabase
           .from('certificados')
-          .insert([formData]);
+          .insert([dataToSave]);
 
         if (insertError) throw insertError;
       }
@@ -248,18 +304,20 @@ function FormCertificado({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">URL del PDF</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Archivo PDF</label>
             <input
-              type="url"
-              value={formData.pdf}
-              onChange={(e) => setFormData({ ...formData, pdf: e.target.value })}
-              placeholder="https://..."
-              required
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              type="file"
+              accept=".pdf"
+              onChange={handlePdfFileChange}
+              disabled={uploadingPdf}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <p className="text-xs text-slate-500 mt-1">
-              Sube el PDF a Supabase Storage y pega la URL pública aquí
-            </p>
+            {pdfFile && (
+              <p className="text-xs text-green-600 mt-1">✓ {pdfFile.name}</p>
+            )}
+            {formData.pdf && !pdfFile && (
+              <p className="text-xs text-slate-500 mt-1">Actual: {formData.pdf.split('/').pop()}</p>
+            )}
           </div>
 
           {error && (
@@ -272,16 +330,17 @@ function FormCertificado({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium"
+              disabled={loading || uploadingPdf}
+              className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || uploadingPdf}
               className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:bg-slate-400 font-medium"
             >
-              {loading ? 'Guardando...' : editingCert ? 'Actualizar' : 'Guardar'}
+              {uploadingPdf ? 'Subiendo PDF...' : loading ? 'Guardando...' : editingCert ? 'Actualizar' : 'Guardar'}
             </button>
           </div>
         </form>
