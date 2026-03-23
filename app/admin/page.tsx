@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import type { Certificado } from '@/lib/certificados';
 
 interface CertificadoConId extends Certificado {
@@ -28,8 +27,14 @@ export default function AdminDashboard() {
 
   async function loadCertificates() {
     try {
-      const { data } = await supabase.from('certificados').select('*');
-      setCertificates(data || []);
+      const res = await fetch('/api/admin/certificados', { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error('Error loading certificates');
+      }
+      const payload = await res.json();
+      setCertificates(payload.data || []);
+    } catch {
+      setCertificates([]);
     } finally {
       setLoading(false);
     }
@@ -172,19 +177,20 @@ function FormCertificado({
   async function uploadPdfToSupabase(file: File): Promise<string | null> {
     try {
       setUploadingPdf(true);
-      const fileName = `${Date.now()}-${file.name}`;
-      
-      const { data, error: uploadError } = await supabase.storage
-        .from('pdfs')
-        .upload(fileName, file);
+      const formData = new FormData();
+      formData.append('file', file);
 
-      if (uploadError) throw uploadError;
+      const res = await fetch('/api/admin/upload-pdf', {
+        method: 'POST',
+        body: formData
+      });
 
-      const { data: urlData } = supabase.storage
-        .from('pdfs')
-        .getPublicUrl(data.path);
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || 'Error al subir PDF');
+      }
 
-      return urlData.publicUrl;
+      return payload.url as string;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al subir PDF');
       return null;
