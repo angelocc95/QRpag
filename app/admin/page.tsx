@@ -267,9 +267,35 @@ function BulkUploadForm({
   onSuccess: () => void;
 }) {
   const [rows, setRows] = useState<BulkCertificado[]>([]);
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
+
+  function normalizeCode(value: string): string {
+    return value.trim().toLowerCase();
+  }
+
+  function fileNameWithoutExtension(fileName: string): string {
+    return fileName.replace(/\.[^/.]+$/, '');
+  }
+
+  async function uploadSinglePdf(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch('/api/admin/upload-pdf', {
+      method: 'POST',
+      body: formData
+    });
+
+    const payload = await res.json();
+    if (!res.ok) {
+      throw new Error(payload.error || `Error al subir ${file.name}`);
+    }
+
+    return payload.url as string;
+  }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -290,6 +316,23 @@ function BulkUploadForm({
     setResult(`${parsed.rows.length} registros listos para subir.`);
   }
 
+  function handlePdfFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    const invalid = files.find((file) => file.type !== 'application/pdf');
+
+    if (invalid) {
+      setError('Todos los archivos deben ser PDF.');
+      return;
+    }
+
+    setPdfFiles(files);
+    setError('');
+
+    if (files.length > 0) {
+      setResult(`${files.length} PDFs listos para asociar por codigo.`);
+    }
+  }
+
   async function handleBulkSubmit() {
     if (rows.length === 0) {
       setError('Primero selecciona un archivo CSV valido.');
@@ -301,10 +344,35 @@ function BulkUploadForm({
       setError('');
       setResult('');
 
+      let processedRows = [...rows];
+      let linkedPdfs = 0;
+
+      if (pdfFiles.length > 0) {
+        const fileByCode = new Map<string, File>();
+        for (const file of pdfFiles) {
+          fileByCode.set(normalizeCode(fileNameWithoutExtension(file.name)), file);
+        }
+
+        const rowsWithUploadedPdf = await Promise.all(
+          rows.map(async (row) => {
+            const matchedFile = fileByCode.get(normalizeCode(row.codigo));
+            if (!matchedFile) {
+              return row;
+            }
+
+            const uploadedUrl = await uploadSinglePdf(matchedFile);
+            linkedPdfs += 1;
+            return { ...row, pdf: uploadedUrl };
+          })
+        );
+
+        processedRows = rowsWithUploadedPdf;
+      }
+
       const res = await fetch('/api/admin/certificados/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows })
+        body: JSON.stringify({ rows: processedRows })
       });
 
       const payload = await res.json();
@@ -313,7 +381,9 @@ function BulkUploadForm({
         throw new Error(payload.error || 'Error en carga masiva');
       }
 
-      setResult(`Carga masiva completada: ${payload.count} certificados procesados.`);
+      setResult(
+        `Carga masiva completada: ${payload.count} certificados procesados. PDFs asociados: ${linkedPdfs}.`
+      );
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error en carga masiva');
@@ -331,7 +401,8 @@ function BulkUploadForm({
           Formato CSV: <span className="font-semibold">codigo,nombre,curso,fecha,pdf</span>
         </p>
         <p className="text-xs text-slate-500 mb-4">
-          El campo pdf es opcional. Si un codigo ya existe, se actualizara automaticamente.
+          El campo pdf es opcional. Si un codigo ya existe, se actualizara automaticamente. Tambien puedes
+          subir varios PDFs y se asociaran por nombre de archivo igual al codigo.
         </p>
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 mb-4">
@@ -345,6 +416,24 @@ function BulkUploadForm({
           disabled={loading}
           className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:opacity-50"
         />
+
+        <div className="mt-4">
+          <p className="text-sm text-slate-600 mb-2">PDFs opcionales (multiple)</p>
+          <p className="text-xs text-slate-500 mb-2">
+            Nombra los archivos como el codigo del certificado. Ejemplo: CERT-100.pdf
+          </p>
+          <input
+            type="file"
+            accept=".pdf,application/pdf"
+            multiple
+            onChange={handlePdfFilesChange}
+            disabled={loading}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:opacity-50"
+          />
+          {pdfFiles.length > 0 && (
+            <p className="mt-2 text-xs text-slate-600">{pdfFiles.length} PDFs seleccionados</p>
+          )}
+        </div>
 
         {error && (
           <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
