@@ -38,8 +38,15 @@ export default function AdminDashboard() {
   async function deleteCert(codigo: string) {
     if (!confirm(`¿Eliminar ${codigo}?`)) return;
     
-    await supabase.from('certificados').delete().eq('codigo', codigo);
-    loadCertificates();
+    try {
+      const res = await fetch(`/api/admin/certificados?codigo=${codigo}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Error deleting certificate');
+      loadCertificates();
+    } catch (error) {
+      alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
   }
 
   function openEditForm(cert: CertificadoConId) {
@@ -222,21 +229,26 @@ function FormCertificado({
         pdf: pdfUrl
       };
 
+      let res;
       if (editingCert?.id) {
         // Actualizar certificado existente
-        const { error: updateError } = await supabase
-          .from('certificados')
-          .update(dataToSave)
-          .eq('id', editingCert.id);
-
-        if (updateError) throw updateError;
+        res = await fetch('/api/admin/certificados', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: editingCert.id, ...dataToSave })
+        });
       } else {
         // Crear nuevo certificado
-        const { error: insertError } = await supabase
-          .from('certificados')
-          .insert([dataToSave]);
+        res = await fetch('/api/admin/certificados', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSave)
+        });
+      }
 
-        if (insertError) throw insertError;
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Error saving certificate');
       }
 
       onClose();
