@@ -11,6 +11,8 @@ interface CertificadoConId extends Certificado {
 export default function AdminDashboard() {
   const [certificates, setCertificates] = useState<CertificadoConId[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [notice, setNotice] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showBulkForm, setShowBulkForm] = useState(false);
   const [editingCert, setEditingCert] = useState<CertificadoConId | null>(null);
@@ -28,6 +30,7 @@ export default function AdminDashboard() {
 
   async function loadCertificates() {
     try {
+      setLoadError('');
       const res = await fetch('/api/admin/certificados', { cache: 'no-store' });
       if (!res.ok) {
         throw new Error('Error loading certificates');
@@ -35,6 +38,7 @@ export default function AdminDashboard() {
       const payload = await res.json();
       setCertificates(payload.data || []);
     } catch {
+      setLoadError('No se pudo cargar la lista de certificados. Recarga la pagina e intenta de nuevo.');
       setCertificates([]);
     } finally {
       setLoading(false);
@@ -118,9 +122,10 @@ export default function AdminDashboard() {
         {showBulkForm && (
           <BulkUploadForm
             onClose={() => setShowBulkForm(false)}
-            onSuccess={() => {
+            onSuccess={(message) => {
               setShowBulkForm(false);
               loadCertificates();
+              setNotice(message);
             }}
           />
         )}
@@ -129,6 +134,15 @@ export default function AdminDashboard() {
         {loading ? (
           <div className="text-center py-12">
             <p className="text-slate-600">Cargando certificados...</p>
+          </div>
+        ) : loadError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {loadError}
+          </div>
+        ) : certificates.length === 0 ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-8 text-center">
+            <p className="text-slate-700 font-medium">No hay certificados para mostrar.</p>
+            <p className="text-slate-500 text-sm mt-1">Agrega uno manualmente o usa la carga masiva CSV.</p>
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -165,6 +179,12 @@ export default function AdminDashboard() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {notice && (
+          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+            {notice}
           </div>
         )}
       </div>
@@ -274,7 +294,7 @@ function BulkUploadForm({
   onSuccess
 }: {
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (message: string) => void;
 }) {
   const [rows, setRows] = useState<BulkCertificado[]>([]);
   const [pdfFiles, setPdfFiles] = useState<File[]>([]);
@@ -395,7 +415,9 @@ function BulkUploadForm({
       setResult(
         `Carga masiva completada: ${payload.count} certificados procesados. PDFs asociados: ${linkedPdfs}.`
       );
-      onSuccess();
+      onSuccess(
+        `Carga masiva completada: ${payload.count} certificados procesados. PDFs asociados: ${linkedPdfs}.`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error en carga masiva');
     } finally {
