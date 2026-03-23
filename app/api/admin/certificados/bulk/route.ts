@@ -9,6 +9,14 @@ type BulkCertificado = {
   pdf?: string;
 };
 
+function chunkArray<T>(input: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < input.length; i += size) {
+    chunks.push(input.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -37,16 +45,24 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error, data } = await supabaseServer
-      .from('certificados')
-      .upsert(rows, { onConflict: 'codigo' })
-      .select('codigo');
+    const chunks = chunkArray(rows, 100);
+    let totalProcessed = 0;
 
-    if (error) {
-      throw error;
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const { error, data } = await supabaseServer
+        .from('certificados')
+        .upsert(chunk, { onConflict: 'codigo' })
+        .select('codigo');
+
+      if (error) {
+        throw new Error(`Error en lote ${i + 1}: ${error.message}`);
+      }
+
+      totalProcessed += data?.length ?? chunk.length;
     }
 
-    return NextResponse.json({ success: true, count: data?.length ?? rows.length });
+    return NextResponse.json({ success: true, count: totalProcessed });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Error en carga masiva' },

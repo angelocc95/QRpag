@@ -302,6 +302,14 @@ function BulkUploadForm({
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
 
+  function chunkRows<T>(input: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < input.length; i += size) {
+      chunks.push(input.slice(i, i + size));
+    }
+    return chunks;
+  }
+
   function normalizeCode(value: string): string {
     return value.trim().toLowerCase();
   }
@@ -400,23 +408,30 @@ function BulkUploadForm({
         processedRows = rowsWithUploadedPdf;
       }
 
-      const res = await fetch('/api/admin/certificados/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: processedRows })
-      });
+      const chunks = chunkRows(processedRows, 100);
+      let totalProcessed = 0;
 
-      const payload = await res.json();
+      for (let i = 0; i < chunks.length; i++) {
+        const res = await fetch('/api/admin/certificados/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: chunks[i] })
+        });
 
-      if (!res.ok) {
-        throw new Error(payload.error || 'Error en carga masiva');
+        const payload = await res.json();
+
+        if (!res.ok) {
+          throw new Error(payload.error || `Error en carga masiva (lote ${i + 1})`);
+        }
+
+        totalProcessed += Number(payload.count || 0);
       }
 
       setResult(
-        `Carga masiva completada: ${payload.count} certificados procesados. PDFs asociados: ${linkedPdfs}.`
+        `Carga masiva completada: ${totalProcessed} certificados procesados. PDFs asociados: ${linkedPdfs}.`
       );
       onSuccess(
-        `Carga masiva completada: ${payload.count} certificados procesados. PDFs asociados: ${linkedPdfs}.`
+        `Carga masiva completada: ${totalProcessed} certificados procesados. PDFs asociados: ${linkedPdfs}.`
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error en carga masiva');
