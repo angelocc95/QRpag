@@ -200,6 +200,23 @@ type BulkCertificado = {
   pdf?: string;
 };
 
+function normalizeHeader(value: string): string {
+  return value
+    .replace(/^\uFEFF/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+}
+
+function findHeaderIndex(headers: string[], candidates: string[]): number {
+  for (const candidate of candidates) {
+    const idx = headers.indexOf(candidate);
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
 function parseCsvLine(line: string, separator: string): string[] {
   const values: string[] = [];
   let current = '';
@@ -252,12 +269,12 @@ function parseBulkCsv(content: string): { rows: BulkCertificado[]; error?: strin
   const semicolonCount = (headerLine.match(/;/g) || []).length;
   const separator = semicolonCount > commaCount ? ';' : ',';
 
-  const headers = parseCsvLine(headerLine, separator).map((header) => header.toLowerCase());
-  const idxCodigo = headers.indexOf('codigo');
-  const idxNombre = headers.indexOf('nombre');
-  const idxCurso = headers.indexOf('curso');
-  const idxFecha = headers.indexOf('fecha');
-  const idxPdf = headers.indexOf('pdf');
+  const headers = parseCsvLine(headerLine, separator).map((header) => normalizeHeader(header));
+  const idxCodigo = findHeaderIndex(headers, ['codigo', 'codigocertificado', 'code']);
+  const idxNombre = findHeaderIndex(headers, ['nombre', 'nombrecompleto', 'participante']);
+  const idxCurso = findHeaderIndex(headers, ['curso', 'programa']);
+  const idxFecha = findHeaderIndex(headers, ['fecha', 'fechaemision', 'fechaemisioncertificado']);
+  const idxPdf = findHeaderIndex(headers, ['pdf', 'pdfurl', 'urlpdf']);
 
   if (idxCodigo < 0 || idxNombre < 0 || idxCurso < 0 || idxFecha < 0) {
     return {
