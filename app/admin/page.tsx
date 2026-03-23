@@ -180,7 +180,7 @@ type BulkCertificado = {
   pdf?: string;
 };
 
-function parseCsvLine(line: string): string[] {
+function parseCsvLine(line: string, separator: string): string[] {
   const values: string[] = [];
   let current = '';
   let inQuotes = false;
@@ -199,7 +199,7 @@ function parseCsvLine(line: string): string[] {
       continue;
     }
 
-    if (char === ',' && !inQuotes) {
+    if (char === separator && !inQuotes) {
       values.push(current.trim());
       current = '';
       continue;
@@ -222,7 +222,12 @@ function parseBulkCsv(content: string): { rows: BulkCertificado[]; error?: strin
     return { rows: [], error: 'El CSV debe incluir encabezado y al menos una fila.' };
   }
 
-  const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase());
+  const headerLine = lines[0];
+  const commaCount = (headerLine.match(/,/g) || []).length;
+  const semicolonCount = (headerLine.match(/;/g) || []).length;
+  const separator = semicolonCount > commaCount ? ';' : ',';
+
+  const headers = parseCsvLine(headerLine, separator).map((header) => header.toLowerCase());
   const idxCodigo = headers.indexOf('codigo');
   const idxNombre = headers.indexOf('nombre');
   const idxCurso = headers.indexOf('curso');
@@ -239,7 +244,7 @@ function parseBulkCsv(content: string): { rows: BulkCertificado[]; error?: strin
   const rows: BulkCertificado[] = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const cols = parseCsvLine(lines[i]);
+    const cols = parseCsvLine(lines[i], separator);
     const codigo = (cols[idxCodigo] || '').trim();
     const nombre = (cols[idxNombre] || '').trim();
     const curso = (cols[idxCurso] || '').trim();
