@@ -1,0 +1,23 @@
+[
+  {
+    "codigo": "CERT-001",
+    "nombre": "Juan Perez",
+    "curso": "Excel Avanzado",
+    "fecha": "2026-03-15",
+    "pdf": "/cert-juan-perez-2026.pdf"
+  },
+  {
+    "codigo": "CERT-002",
+    "nombre": "Maria Gomez",
+    "curso": "Power BI Profesional",
+    "fecha": "2026-03-12",
+    "pdf": "https://example.com/certificados/cert002.pdf"
+  },
+  {
+    "codigo": "CERT-003",
+    "nombre": "Carlos Ruiz",
+    "curso": "Analitica de Datos",
+    "fecha": "2026-03-10",
+    "pdf": "https://example.com/certificados/cert003.pdf"
+  }
+]
