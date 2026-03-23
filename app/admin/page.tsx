@@ -12,6 +12,7 @@ export default function AdminDashboard() {
   const [certificates, setCertificates] = useState<CertificadoConId[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showBulkForm, setShowBulkForm] = useState(false);
   const [editingCert, setEditingCert] = useState<CertificadoConId | null>(null);
   const router = useRouter();
 
@@ -98,6 +99,12 @@ export default function AdminDashboard() {
           >
             + Nuevo Certificado
           </button>
+          <button
+            onClick={() => setShowBulkForm(true)}
+            className="px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 font-semibold"
+          >
+            Carga Masiva CSV
+          </button>
         </div>
 
         {/* Formulario */}
@@ -105,6 +112,16 @@ export default function AdminDashboard() {
           <FormCertificado
             onClose={closeForm}
             editingCert={editingCert}
+          />
+        )}
+
+        {showBulkForm && (
+          <BulkUploadForm
+            onClose={() => setShowBulkForm(false)}
+            onSuccess={() => {
+              setShowBulkForm(false);
+              loadCertificates();
+            }}
           />
         )}
 
@@ -152,6 +169,215 @@ export default function AdminDashboard() {
         )}
       </div>
     </main>
+  );
+}
+
+type BulkCertificado = {
+  codigo: string;
+  nombre: string;
+  curso: string;
+  fecha: string;
+  pdf?: string;
+};
+
+function parseCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const nextChar = i + 1 < line.length ? line[i + 1] : '';
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      values.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current.trim());
+  return values;
+}
+
+function parseBulkCsv(content: string): { rows: BulkCertificado[]; error?: string } {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return { rows: [], error: 'El CSV debe incluir encabezado y al menos una fila.' };
+  }
+
+  const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase());
+  const idxCodigo = headers.indexOf('codigo');
+  const idxNombre = headers.indexOf('nombre');
+  const idxCurso = headers.indexOf('curso');
+  const idxFecha = headers.indexOf('fecha');
+  const idxPdf = headers.indexOf('pdf');
+
+  if (idxCodigo < 0 || idxNombre < 0 || idxCurso < 0 || idxFecha < 0) {
+    return {
+      rows: [],
+      error: 'Encabezados requeridos: codigo,nombre,curso,fecha (pdf es opcional).'
+    };
+  }
+
+  const rows: BulkCertificado[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCsvLine(lines[i]);
+    const codigo = (cols[idxCodigo] || '').trim();
+    const nombre = (cols[idxNombre] || '').trim();
+    const curso = (cols[idxCurso] || '').trim();
+    const fecha = (cols[idxFecha] || '').trim();
+    const pdf = idxPdf >= 0 ? (cols[idxPdf] || '').trim() : '';
+
+    if (!codigo || !nombre || !curso || !fecha) {
+      return {
+        rows: [],
+        error: `Fila ${i + 1} incompleta. Verifica codigo, nombre, curso y fecha.`
+      };
+    }
+
+    rows.push({ codigo, nombre, curso, fecha, pdf });
+  }
+
+  return { rows };
+}
+
+function BulkUploadForm({
+  onClose,
+  onSuccess
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [rows, setRows] = useState<BulkCertificado[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState('');
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const text = await file.text();
+    const parsed = parseBulkCsv(text);
+
+    if (parsed.error) {
+      setError(parsed.error);
+      setRows([]);
+      setResult('');
+      return;
+    }
+
+    setRows(parsed.rows);
+    setError('');
+    setResult(`${parsed.rows.length} registros listos para subir.`);
+  }
+
+  async function handleBulkSubmit() {
+    if (rows.length === 0) {
+      setError('Primero selecciona un archivo CSV valido.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      setResult('');
+
+      const res = await fetch('/api/admin/certificados/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows })
+      });
+
+      const payload = await res.json();
+
+      if (!res.ok) {
+        throw new Error(payload.error || 'Error en carga masiva');
+      }
+
+      setResult(`Carga masiva completada: ${payload.count} certificados procesados.`);
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error en carga masiva');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-lg max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold text-slate-900 mb-4">Carga Masiva de Certificados</h2>
+
+        <p className="text-sm text-slate-600 mb-3">
+          Formato CSV: <span className="font-semibold">codigo,nombre,curso,fecha,pdf</span>
+        </p>
+        <p className="text-xs text-slate-500 mb-4">
+          El campo pdf es opcional. Si un codigo ya existe, se actualizara automaticamente.
+        </p>
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 mb-4">
+          Ejemplo: CERT-100,Juan Perez,Excel Avanzado,2026-03-20,https://dominio.com/cert100.pdf
+        </div>
+
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          onChange={handleFileChange}
+          disabled={loading}
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:opacity-50"
+        />
+
+        {error && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
+        {result && !error && (
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+            {result}
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-5">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium disabled:opacity-50"
+          >
+            Cerrar
+          </button>
+          <button
+            type="button"
+            onClick={handleBulkSubmit}
+            disabled={loading || rows.length === 0}
+            className="flex-1 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 disabled:bg-slate-400 font-medium"
+          >
+            {loading ? 'Procesando...' : `Subir ${rows.length || 0} registros`}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
