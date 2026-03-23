@@ -10,7 +10,7 @@ type Props = {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { codigo } = await params;
   const cleanCode = normalizeCode(codigo);
-  const certificado = getCertificadoByCode(cleanCode);
+  const certificado = await getCertificadoByCode(cleanCode);
 
   return {
     title: certificado
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function VerifyPage({ params }: Props) {
   const { codigo } = await params;
   const cleanCode = normalizeCode(codigo);
-  const certificado = getCertificadoByCode(cleanCode);
+  const certificado = await getCertificadoByCode(cleanCode);
 
   return (
     <main className="min-h-screen px-4 py-10">

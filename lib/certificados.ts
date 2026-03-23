@@ -1,4 +1,4 @@
-import certificados from "@/data/certificados.json";
+import { supabase } from "./supabase";
 
 export type Certificado = {
   codigo: string;
@@ -8,13 +8,50 @@ export type Certificado = {
   pdf: string;
 };
 
-const registros = certificados as Certificado[];
-
 export function normalizeCode(value: string): string {
   return value.trim().toUpperCase();
 }
 
-export function getCertificadoByCode(code: string): Certificado | null {
+export async function getCertificadoByCode(code: string): Promise<Certificado | null> {
   const codigo = normalizeCode(code);
-  return registros.find((item) => normalizeCode(item.codigo) === codigo) ?? null;
+  
+  try {
+    const { data, error } = await supabase
+      .from("certificados")
+      .select("*")
+      .ilike("codigo", `%${codigo}%`)
+      .single();
+
+    if (error || !data) return null;
+    
+    return {
+      codigo: data.codigo,
+      nombre: data.nombre,
+      curso: data.curso,
+      fecha: data.fecha,
+      pdf: data.pdf
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getCertificados(): Promise<Certificado[]> {
+  try {
+    const { data, error } = await supabase
+      .from("certificados")
+      .select("*");
+
+    if (error || !data) return [];
+    
+    return data.map((item: any) => ({
+      codigo: item.codigo,
+      nombre: item.nombre,
+      curso: item.curso,
+      fecha: item.fecha,
+      pdf: item.pdf
+    }));
+  } catch {
+    return [];
+  }
 }
