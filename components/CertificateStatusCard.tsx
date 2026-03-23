@@ -7,7 +7,24 @@ type Props = {
 };
 
 function formatDate(value: string): string {
-  const date = new Date(`${value}T00:00:00`);
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const latamMatch = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+
+  let date: Date | null = null;
+
+  if (isoMatch) {
+    date = new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T00:00:00`);
+  } else if (latamMatch) {
+    const day = latamMatch[1].padStart(2, "0");
+    const month = latamMatch[2].padStart(2, "0");
+    const year = latamMatch[3];
+    date = new Date(`${year}-${month}-${day}T00:00:00`);
+  }
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return value;
+  }
+
   return new Intl.DateTimeFormat("es-PE", {
     day: "2-digit",
     month: "long",

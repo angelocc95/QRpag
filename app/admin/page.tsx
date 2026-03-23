@@ -217,6 +217,27 @@ function findHeaderIndex(headers: string[], candidates: string[]): number {
   return -1;
 }
 
+function normalizeCsvDate(value: string): string {
+  const trimmed = value.trim();
+
+  // Already ISO format: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Excel common format: DD/MM/YYYY or DD-MM-YYYY
+  const match = trimmed.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (match) {
+    const day = match[1].padStart(2, '0');
+    const month = match[2].padStart(2, '0');
+    const year = match[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  // Keep original value if it doesn't match known patterns.
+  return trimmed;
+}
+
 function parseCsvLine(line: string, separator: string): string[] {
   const values: string[] = [];
   let current = '';
@@ -290,7 +311,7 @@ function parseBulkCsv(content: string): { rows: BulkCertificado[]; error?: strin
     const codigo = (cols[idxCodigo] || '').trim();
     const nombre = (cols[idxNombre] || '').trim();
     const curso = (cols[idxCurso] || '').trim();
-    const fecha = (cols[idxFecha] || '').trim();
+    const fecha = normalizeCsvDate((cols[idxFecha] || '').trim());
     const pdf = idxPdf >= 0 ? (cols[idxPdf] || '').trim() : '';
 
     if (!codigo || !nombre || !curso || !fecha) {
